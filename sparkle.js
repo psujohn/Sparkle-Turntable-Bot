@@ -47,8 +47,8 @@ var enforcementtimeout = new Date();//The time that the user stepped down
 var ffa = false;                    //A flag denoting if free-for-all mode is active
 var legalstepdown = true;           //A flag denoting if a user stepped up legally
 var pastdjs = new Array();          //An array of the past 4 DJs
-var djqueue = new Array();
 var waitlist = new Array();         // Array of users waiting to get on deck
+var moderators = new Array();
 
 //Used for bonus awesoming
 var bonuspoints = new Array();      //An array of DJs wanting the bot to bonus
@@ -81,6 +81,9 @@ bot.on('ready', function (data) {
 //Runs when the room is changed.
 //Updates the currentsong array and users array with new room data.
 bot.on('roomChanged', function(data) {
+
+    moderators = data.room.metadata.moderator_id;
+
 	//Fill currentsong array with room data
     if ((data.room != null) && (data.room.metadata != null)) {
         if (data.room.metadata.current_song != null) {
@@ -653,7 +656,7 @@ function output(data) {
 //Checks if the user id is present in the admin list. Authentication
 //for admin-only privileges.
 function admincheck(userid) {
-    return config.admins.mainadmin == userid || config.admins.admins.indexOf(userid) >= 0
+    return config.admins.mainadmin == userid || moderators.indexOf(userid) >= 0 || config.admins.admins.indexOf(userid) >= 0
 }
 
 //The bot will respond to a Reptar call with a variant of 'rawr!' based on
@@ -1117,23 +1120,40 @@ function handleCommand (name, userid, text, source) {
     //--------------------------------------
     
     
-    case '.sparklecommands':
+        case 'commands':
         
         var response = 'commands: .owner, .source, mystats, bonus, points, rules, ping, '
             + 'platforms, reptar, mostplayed, mostawesomed, mostlamed, mymostplayed, '
             + 'mymostawesomed, mymostlamed, totalawesomes, mostsnagged, '
-            + 'pastnames [username], .similar, .similarartists, '
-            + '.weather [zip], .find [zip] [thing]';
+            + 'pastnames [username], .similar, .similarartists, ';
+        
+        var response = 'Commands: ping, reptar, rules, platforms, .owner, .source, /roll, '
+            + 'version, hugs meow, .hodor, uptime, ';
+        
+        if (config.lastfm.useapi) {
+            response += '.similar, .similarartists, ';
+        }
+        
+        if (config.bonusvote == 'CHAT') {
+            response += '/bonus, points, ';
+        } else if (config.bonusvote == 'VOTE') {
+            response += 'points, ';
+        }
+        
+        if (config.enforcement.enforceroom) {
+            response += '.remaining, any spots opening soon?, djinfo, waitdjs, stagedive, ';
+        }
+        
+        if (config.database.usedb) {
             
-        output({text: response, destination: source, userid: userid});
-        break;
-
-    case 'help':
-    case 'commands':
-        var response = 'commands: .ad, bonus, points, ping, reptar, merica, .random, platforms, '
-            + '.twitter, .rules, .users, .owner, .source, mystats, mostplayed, '
-            + 'mostawesomed, mymostplayed, mymostawesomed, '
-            + 'pastnames [username], .similar, .similarartists';
+            response += '(my)stats, (my)past24hours, (my)pastweek, '
+                + '(my)mostplayed, (my)mostawesomed, (my)mostlamed, mostsnagged, '
+                + 'bestdjs, worstdjs, pastnames [username], catfact, ';
+        }
+        
+        response += '.weather [zip], .find [zip] [thing]';
+        
+            
         output({text: response, destination: source, userid: userid});
         break;
     
@@ -1572,6 +1592,42 @@ function handleCommand (name, userid, text, source) {
                     var response = name + ', you have played ' + results[0]['songs']
                         + ' songs in the past 24 hours, with ' + results[0]['upvotes']
                         + ' upvotes and ' + results[0]['downvotes'] + ' downvotes.';
+                    output({text: response, destination: source, userid: userid});
+            });
+        }
+        break;
+        
+        case 'mypastweek':
+        if (config.database.usedb) {
+            client.query('SELECT count(*) AS songs, sum(up) AS upvotes, sum(down) AS downvotes FROM '
+                + config.database.dbname + '.'
+                + config.database.tablenames.song + ' WHERE started > DATE_SUB(NOW(), '
+                + 'INTERVAL 1 WEEK) AND djid LIKE \'' + userid + '\'',
+                function select(error, results, fields) {
+                    var response = name + ', you have played ' + results[0]['songs']
+                        + ' songs in the past week, with ' + results[0]['upvotes']
+                        + ' upvotes and ' + results[0]['downvotes'] + ' downvotes.';
+                    output({text: response, destination: source, userid: userid});
+            });
+        }
+        break;
+        
+    //Returns the five DJs with the most points in the last week
+    case 'pastweek':
+        if (config.database.usedb) {
+            client.query('SELECT username, upvotes FROM (SELECT djid, sum(up) as upvotes '
+                + 'FROM ' + config.database.dbname + '.' + config.database.tablenames.song
+                + ' WHERE started > DATE_SUB(NOW(), INTERVAL '
+                + '1 WEEK) GROUP BY djid) a INNER JOIN (SELECT * FROM (SELECT * FROM '
+                 + config.database.dbname + '.' + config.database.tablenames.user
+                + ' ORDER BY lastseen DESC) as test GROUP BY userid) b ON a.djid = b.userid'
+                + ' ORDER BY upvotes DESC LIMIT 5',
+                function select(error, results, fields) {
+                    var response = 'DJs with the most points in the last week: ';
+                    for (i in results) {
+                        response += results[i]['username'] + ': '
+                            + results[i]['upvotes'] + '▲. ';
+                    }
                     output({text: response, destination: source, userid: userid});
             });
         }
